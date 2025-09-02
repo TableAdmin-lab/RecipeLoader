@@ -7,7 +7,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family/Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --yoco-bg: #121212;
@@ -19,6 +19,7 @@
       --yoco-text-secondary: #b3b3b3;
       --yoco-border: #333333;
       --yoco-green: #27ae60;
+      --yoco-orange: #f39c12;
       --yoco-red: #eb5757;
       --shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
     }
@@ -341,6 +342,13 @@
         background-color: var(--yoco-bg);
         color: var(--yoco-text-primary);
         text-align: right;
+        -moz-appearance: textfield; /* Firefox */
+    }
+    /* Hide spin buttons on number inputs for Chrome, Safari, Edge, Opera */
+    td input[type="number"]::-webkit-outer-spin-button,
+    td input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
     }
     
     .remove-btn {
@@ -361,15 +369,31 @@
         justify-content: space-between;
         align-items: center;
         flex-shrink: 0;
+        flex-wrap: wrap;
+        gap: 15px;
     }
 
-    .recipe-summary .total-cost {
-        font-size: 1.5rem;
+    .cost-details {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .recipe-summary .total-cost, .recipe-summary .selling-price, .recipe-summary .gp-percentage {
+        font-size: 1.2rem;
         font-weight: 700;
     }
 
     .recipe-summary .total-cost span {
         color: var(--yoco-green);
+    }
+
+    .recipe-summary .selling-price span {
+        color: var(--yoco-primary);
+    }
+    
+    .recipe-summary .gp-percentage span {
+        transition: color 0.3s;
     }
     
     .action-btn {
@@ -456,6 +480,9 @@
         display: flex;
         justify-content: flex-end;
     }
+    .gp-low { color: var(--yoco-red); font-weight: 600; }
+    .gp-medium { color: var(--yoco-orange); font-weight: 600; }
+    .gp-high { color: var(--yoco-green); font-weight: 600; }
 
     /* Tooltip Styles */
     .tooltip-container {
@@ -684,8 +711,16 @@
             </div>
 
             <div class="recipe-summary">
-                <div class="total-cost">
-                    Total Recipe Cost: <span id="totalCost">R0.00</span>
+                <div class="cost-details">
+                    <div class="total-cost">
+                        Total Recipe Cost: <span id="totalCost">R0.00</span>
+                    </div>
+                    <div class="selling-price" id="sellingPriceContainer" style="display: none;">
+                        Master Selling Price: <span id="masterSellingPrice">R0.00</span>
+                    </div>
+                    <div class="gp-percentage" id="gpPercentageContainer" style="display: none;">
+                        Gross Profit %: <span id="gpPercentage">0.00%</span>
+                    </div>
                 </div>
                 <button class="action-btn save-btn" id="saveRecipeBtn" title="Save the current recipe in the builder to the 'Saved Recipes' list below.">Save Recipe</button>
             </div>
@@ -732,6 +767,10 @@
     const masterProductList = document.getElementById('masterProductList');
     const savedRecipesContainer = document.getElementById('savedRecipesContainer');
     const savedRecipeSearch = document.getElementById('savedRecipeSearch');
+    const sellingPriceContainer = document.getElementById('sellingPriceContainer');
+    const masterSellingPriceDisplay = document.getElementById('masterSellingPrice');
+    const gpPercentageContainer = document.getElementById('gpPercentageContainer');
+    const gpPercentageDisplay = document.getElementById('gpPercentage');
     
     // --- Event Listeners ---
     window.addEventListener('DOMContentLoaded', loadState);
@@ -795,7 +834,7 @@
                 const worksheet = workbook.Sheets[firstSheetName];
                 
                 // --- HEADER VALIDATION ---
-                const requiredHeaders = ['Product PLU', 'Product Name & Variant', 'Selling UOM', 'Cost Price', 'Inventory Category'];
+                const requiredHeaders = ['Product PLU', 'Product Name & Variant', 'Selling UOM', 'Cost Price', 'Selling Price', 'Inventory Category'];
                 const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0];
                 const missingHeaders = requiredHeaders.filter(header => !headerRow.includes(header));
 
@@ -814,6 +853,7 @@
                     name: row['Product Name & Variant'],
                     uom: row['Selling UOM'],
                     cost: parseFloat(row['Cost Price']) || 0,
+                    sellingPrice: parseFloat(row['Selling Price']) || 0,
                     category: row['Inventory Category'] || 'Uncategorized'
                 }));
                 
@@ -995,9 +1035,9 @@
         const inputValue = event.target.value;
         const option = Array.from(masterProductList.options).find(opt => opt.value === inputValue);
         selectedMasterProduct = option ? importedProducts.find(p => p.plu.toString() === option.dataset.plu) : null;
+        updateSummary();
     }
-
-
+    
     function addProductToRecipe(product) {
         if (recipeItems.some(item => item.plu === product.plu)) {
             alert(`${product.name} is already in the recipe.`);
@@ -1005,20 +1045,20 @@
         }
         recipeItems.push({ ...product, quantity: 1 });
         renderRecipeTable();
-        updateTotalCost();
+        updateSummary();
     }
     
     function updateRecipeQuantity(plu, quantity) {
         const item = recipeItems.find(i => i.plu.toString() === plu.toString());
         if (item) item.quantity = parseFloat(quantity) || 0;
         renderRecipeTable();
-        updateTotalCost();
+        updateSummary();
     }
 
     function removeRecipeItem(plu) {
         recipeItems = recipeItems.filter(item => item.plu.toString() !== plu.toString());
         renderRecipeTable();
-        updateTotalCost();
+        updateSummary();
     }
 
     function renderRecipeTable() {
@@ -1039,10 +1079,44 @@
         });
     }
 
-    function updateTotalCost() {
+    function updateSummary() {
+        // 1. Calculate and display total cost
         const total = recipeItems.reduce((sum, item) => sum + (item.cost * item.quantity), 0);
         totalCostDisplay.textContent = `R${total.toFixed(2)}`;
+
+        // 2. Display selling price and GP% if a master product is selected
+        if (selectedMasterProduct && typeof selectedMasterProduct.sellingPrice !== 'undefined') {
+            const sellingPrice = selectedMasterProduct.sellingPrice;
+            masterSellingPriceDisplay.textContent = `R${sellingPrice.toFixed(2)}`;
+            sellingPriceContainer.style.display = 'block';
+
+            let gp = 0;
+            if (sellingPrice > 0) {
+                gp = ((sellingPrice - total) / sellingPrice) * 100;
+            } else {
+                 gp = -100; // Or handle as you see fit if selling price is zero
+            }
+            
+            gpPercentageDisplay.textContent = `${gp.toFixed(2)}%`;
+            
+            // Color code the GP%
+            if (gp < 30) {
+                gpPercentageDisplay.style.color = 'var(--yoco-red)';
+            } else if (gp < 60) {
+                gpPercentageDisplay.style.color = 'var(--yoco-orange)';
+            } else {
+                gpPercentageDisplay.style.color = 'var(--yoco-green)';
+            }
+            
+            gpPercentageContainer.style.display = 'block';
+
+        } else {
+            // Hide if no master product is selected
+            sellingPriceContainer.style.display = 'none';
+            gpPercentageContainer.style.display = 'none';
+        }
     }
+
 
     // --- Saved Recipes Logic ---
     function saveCurrentRecipe() {
@@ -1076,7 +1150,7 @@
         selectedMasterProduct = null;
         recipeItems = [];
         renderRecipeTable();
-        updateTotalCost();
+        updateSummary();
     }
 
     function renderSavedRecipes(recipesToRender = savedRecipes) {
@@ -1093,6 +1167,8 @@
                     <th>Recipe Name</th>
                     <th>Items</th>
                     <th>Total Cost</th>
+                    <th>Selling Price</th>
+                    <th>GP%</th>
                     <th class="actions-col">Actions</th>
                 </tr>
             </thead>
@@ -1101,11 +1177,30 @@
 
         recipesToRender.sort((a,b) => a.master.name.localeCompare(b.master.name)).forEach(recipe => {
             const totalCost = recipe.items.reduce((sum, item) => sum + (item.cost * item.quantity), 0);
+            const sellingPrice = recipe.master.sellingPrice || 0;
+            let gp = 0;
+            if (sellingPrice > 0) {
+                gp = ((sellingPrice - totalCost) / sellingPrice) * 100;
+            } else {
+                gp = -100;
+            }
+
+            let gpColorClass = '';
+            if (gp < 30) {
+                gpColorClass = 'gp-low';
+            } else if (gp < 60) {
+                gpColorClass = 'gp-medium';
+            } else {
+                gpColorClass = 'gp-high';
+            }
+
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td title="${recipe.master.name}">${recipe.master.name}</td>
                 <td>${recipe.items.length}</td>
                 <td>R${totalCost.toFixed(2)}</td>
+                <td>R${sellingPrice.toFixed(2)}</td>
+                <td class="${gpColorClass}">${gp.toFixed(2)}%</td>
                 <td class="actions-col">
                     <button onclick="copyRecipe('${recipe.master.plu}')" title="Copy ingredients from this recipe to the builder. You must select a new master product first.">Copy</button>
                     <button onclick="loadRecipe('${recipe.master.plu}')" title="Load this recipe into the builder for editing. This will remove it from the saved list until it's saved again.">Edit</button>
@@ -1145,7 +1240,7 @@
         // Create a deep copy of the items to avoid reference issues
         recipeItems = recipeToCopy.items.map(item => ({ ...item }));
         renderRecipeTable();
-        updateTotalCost();
+        updateSummary();
     }
 
     function loadRecipe(masterPlu) {
@@ -1159,7 +1254,7 @@
         deleteRecipe(masterPlu, false);
 
         renderRecipeTable();
-        updateTotalCost();
+        updateSummary();
     }
 
     function deleteRecipe(masterPlu, askConfirm = true) {
